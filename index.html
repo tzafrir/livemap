@@ -1,0 +1,147 @@
+<!doctype html>
+<head>
+  <meta name="viewport" content="initial-scale=1.0, user-scalable=no" />
+  <script src="//ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
+  <link rel="stylesheet" href="//cdn.leafletjs.com/leaflet-0.7.3/leaflet.css" />
+  <script src="//cdn.leafletjs.com/leaflet-0.7.3/leaflet.js"></script>
+  <script src='leaflet-omnivore.js'></script>
+  <title>Live Israel Alarm Map</title>
+  <style>
+    html {
+      height: 100%
+    }
+
+    body {
+      height: 100%;
+      margin: 0;
+      padding: 0
+    }
+
+    #map {
+      height: 100%;
+    }
+
+    svg g path {
+      transition: all 1s ease-in-out;
+      -moz-transition: all 1s ease-in-out;
+      -webkit-transition: all 1s ease-in-out;
+    }
+
+    #header {
+      height: 130px;
+      width: 74%;
+      position: absolute;
+      top: 0;
+      left: 16%;
+      text-align: center;
+      z-index: 9999;
+      background: rgba(255, 255, 255, 0.65)
+    }
+
+    #header h3 {
+      font-family: helvetica, arial, sans-serif;
+      font-size: 21px;
+      font-weight: 300;
+      width: 80%;
+      margin-left: auto;
+      margin-right: auto;
+    }
+  </style>
+</head>
+<body>
+  <div id="header">
+    <h3>Areas on the map will light up in real time when alarms go off</h3>
+  </div>
+  <div id="map"></div>
+  <script>
+    var map = L.map('map').setView([31.729335,34.963989], 9); 
+    window.map = map;
+    window.kml = omnivore.kml('defense_v2.kml');
+    L.tileLayer('https://{s}.tiles.mapbox.com/v3/{id}/{z}/{x}/{y}.png', {
+			maxZoom: 18,
+			attribution: 'Map data &copy; <a href="http://openstreetmap.org">OpenStreetMap</a> contributors, ' +
+				'<a href="http://creativecommons.org/licenses/by-sa/2.0/">CC-BY-SA</a>, ' +
+				'Imagery © <a href="http://mapbox.com">Mapbox</a>',
+			id: 'tzafrir.iokhia4c'
+		}).addTo(map);
+    var areas = {};
+    kml.on('ready', function() {
+      for (id in kml._layers) {
+        var l = kml._layers[id];
+        areas[l.feature.properties.name] = l;
+        l.setStyle({weight: 2, color: '#FF5B27'});
+        l.custom_props = {hot: 0};
+      }
+      start_polling();
+    })
+    window.areas = areas;
+
+  var known_timestamps = {};
+
+  function start_polling() {
+    $.getJSON('http://api.rocketalert.me/alerts/latest').done(function(data) {
+      for (var i = 0; i < data.length; ++i) {
+        var alarm = data[i];
+        if (known_timestamps[alarm.timestamp]) continue;
+        known_timestamps[alarm.timestamp] = true;
+        area_alarm(alarm);
+      }
+    });
+
+    window.setTimeout(start_polling, 5000);
+  }
+
+  var HOTNESS = 60.0;
+  var DECAY = 300 * 1000;
+
+  function area_alarm(alarm) {
+    var area_name = alarm.area_name.match(/(.*)\s\d+/)[1];
+    var area = areas[area_name];
+    fire_area(area);
+  }
+
+  function fire_area(area) {
+    adjust_hotness(area, HOTNESS);
+    setTimeout(function() { adjust_hotness(area, -HOTNESS/6.0) }, 1500);
+    setTimeout(function() { adjust_hotness(area, -HOTNESS/6.0) }, DECAY / 3.0);
+    setTimeout(function() { adjust_hotness(area, -HOTNESS/3.0) }, 2 * DECAY / 3.0);
+    setTimeout(function() { adjust_hotness(area, -HOTNESS/3.0) }, 3 * DECAY / 3.0);
+  }
+
+  function adjust_hotness(area, amount) {
+    area.custom_props.hot += amount;
+    var hotness = calc_hotness(area.custom_props.hot);
+    area.setStyle({
+      fillOpacity: hotness,
+      opacity: hotness
+    });
+    area.addTo(map);
+  }
+
+  function calc_hotness(amount) {
+    return 1.0 - 1.0/((amount / HOTNESS) + 1.0);
+  }
+
+  function simulate() {
+    DECAY = 3000;
+    window.setInterval(function() {
+      var len = 0;
+      for (id in areas) {
+        if (areas.hasOwnProperty(id)) {
+          len ++;
+        }
+      }
+      var rand = Math.floor(Math.random() * len);
+      var i = 0;
+      for (id in areas) {
+        if (i == rand) {
+          fire_area(areas[id]);
+          return;
+        }
+        i++;
+      }
+    }, 500)
+  }
+
+  </script>
+</body>
